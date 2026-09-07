@@ -82,8 +82,8 @@ EnsembleResult EnsembleVote(const float &lgbmProbs[], const float &mlpProbs[], c
    bool mlpIsBull  = (mlpProbs[0] > mlpProbs[2] && mlpProbs[0] > mlpProbs[1]);
    bool mlpIsBear  = (mlpProbs[2] > mlpProbs[0] && mlpProbs[2] > mlpProbs[1]);
 
-   // --- MODE 2: DUAL-ENGINE SYNERGY (Both models agree on direction >= 0.50) ---
-   if(lgbmIsBull && mlpIsBull && lgbmProbs[0] >= 0.50 && mlpProbs[0] >= 0.50 && !isMacroBear)
+   // --- MODE 2: DUAL-ENGINE SYNERGY (Both models agree on direction >= 0.52) ---
+   if(lgbmIsBull && mlpIsBull && lgbmProbs[0] >= 0.52 && mlpProbs[0] >= 0.52 && !isMacroBear)
    {
       double rawAvg = (lgbmProbs[0] + mlpProbs[0]) / 2.0;
       if(rule.active && rule.direction == 0) rawAvg = (rawAvg * 0.80) + (rule.confidence * 0.20);
@@ -93,7 +93,7 @@ EnsembleResult EnsembleVote(const float &lgbmProbs[], const float &mlpProbs[], c
       result.reason             = "BULL DUAL-ENGINE SYNERGY (1.20x Boost)";
       return result;
    }
-   else if(lgbmIsBear && mlpIsBear && lgbmProbs[2] >= 0.50 && mlpProbs[2] >= 0.50 && !isMacroBull)
+   else if(lgbmIsBear && mlpIsBear && lgbmProbs[2] >= 0.52 && mlpProbs[2] >= 0.52 && !isMacroBull)
    {
       double rawAvg = (lgbmProbs[2] + mlpProbs[2]) / 2.0;
       if(rule.active && rule.direction == 2) rawAvg = (rawAvg * 0.80) + (rule.confidence * 0.20);
@@ -104,8 +104,8 @@ EnsembleResult EnsembleVote(const float &lgbmProbs[], const float &mlpProbs[], c
       return result;
    }
 
-   // --- MODE 1A: LIGHTGBM SOLO TREND STRIKE ---
-   if(lgbmIsBull && lgbmProbs[0] >= 0.55 && mlpProbs[2] < 0.60 && !isMacroBear)
+   // --- MODE 1A: LIGHTGBM SOLO TREND STRIKE (High Conviction >= 0.60) ---
+   if(lgbmIsBull && lgbmProbs[0] >= 0.60 && mlpProbs[2] < 0.55 && !isMacroBear)
    {
       result.finalDirection     = 0;
       result.ensembleConfidence = (double)lgbmProbs[0];
@@ -113,7 +113,7 @@ EnsembleResult EnsembleVote(const float &lgbmProbs[], const float &mlpProbs[], c
       result.reason             = "LIGHTGBM SOLO BULL TREND STRIKE";
       return result;
    }
-   else if(lgbmIsBear && lgbmProbs[2] >= 0.55 && mlpProbs[0] < 0.60 && !isMacroBull)
+   else if(lgbmIsBear && lgbmProbs[2] >= 0.60 && mlpProbs[0] < 0.55 && !isMacroBull)
    {
       result.finalDirection     = 2;
       result.ensembleConfidence = (double)lgbmProbs[2];
@@ -122,8 +122,8 @@ EnsembleResult EnsembleVote(const float &lgbmProbs[], const float &mlpProbs[], c
       return result;
    }
 
-   // --- MODE 1B: DEEP MLP SOLO PATTERN STRIKE ---
-   if(mlpIsBull && mlpProbs[0] >= 0.65 && lgbmProbs[2] < 0.60 && !isMacroBear)
+   // --- MODE 1B: DEEP MLP SOLO PATTERN STRIKE (High Conviction >= 0.68) ---
+   if(mlpIsBull && mlpProbs[0] >= 0.68 && lgbmProbs[2] < 0.55 && !isMacroBear)
    {
       result.finalDirection     = 0;
       result.ensembleConfidence = (double)mlpProbs[0];
@@ -131,7 +131,7 @@ EnsembleResult EnsembleVote(const float &lgbmProbs[], const float &mlpProbs[], c
       result.reason             = "DEEP MLP SOLO BULL PATTERN STRIKE";
       return result;
    }
-   else if(mlpIsBear && mlpProbs[2] >= 0.65 && lgbmProbs[0] < 0.60 && !isMacroBull)
+   else if(mlpIsBear && mlpProbs[2] >= 0.68 && lgbmProbs[0] < 0.55 && !isMacroBull)
    {
       result.finalDirection     = 2;
       result.ensembleConfidence = (double)mlpProbs[2];

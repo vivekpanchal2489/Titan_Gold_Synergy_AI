@@ -223,6 +223,8 @@ input int    InpEMAPeriod              = 50;     // Period of the EMA trend filt
 input bool   InpUseRSIFilter           = true;   // Gate 8: RSI exhaustion filter (Blocks Buy @ Top >= 70, Blocks Sell @ Bottom <= 30)
 input bool   InpUseCandleConfirm       = true;   // Gate 9: Candle color momentum confirmation (Wait-and-See)
 input bool   InpUseMTFTrendFilter      = true;   // Gate 7b Multi-timeframe trend filter (H1 EMA 50)
+input bool   InpUseInstitutionalSessions = true; // Gate 10a: Institutional Session Windows (London 07-11 UTC, NY 12:30-17:30 UTC)
+input bool   InpUseAsianRangeSweep     = true;   // Gate 10b: Asian Range High/Low Liquidity Sweep Detector
 input bool   InpUseLocalDonchianBreakout = false; // Local Donchian breakout
 input bool   InpUseLocalVolBreakout    = false;  // Local volume breakout
 input bool   InpUseLocalVWAPPullback   = false;  // Local VWAP pullback
@@ -377,7 +379,48 @@ bool ShouldExecuteTrade(double confidence, double slDistUSD)
       return false;
    }
 
-   return true;
+//+------------------------------------------------------------------+
+//| GetAsianSessionRange — Computes Asian Session High & Low (00-06) |
+//+------------------------------------------------------------------+
+void GetAsianSessionRange(double &asianHigh, double &asianLow)
+{
+   asianHigh = 0.0;
+   asianLow  = 0.0;
+   
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+   dt.hour = 0; dt.min = 0; dt.sec = 0;
+   datetime todayStart = StructToTime(dt);
+   
+   MqlRates rates[];
+   ArraySetAsSeries(rates, true);
+   int copied = CopyRates(_Symbol, PERIOD_M5, 0, 150, rates);
+   if(copied <= 0) return;
+   
+   double hi = 0.0;
+   double lo = 999999.0;
+   int count = 0;
+   
+   for(int i = 0; i < copied; i++)
+   {
+      if(rates[i].time >= todayStart)
+      {
+         MqlDateTime bdt;
+         TimeToStruct(rates[i].time, bdt);
+         if(bdt.hour >= 0 && bdt.hour < 6)
+         {
+            if(rates[i].high > hi) hi = rates[i].high;
+            if(rates[i].low < lo) lo = rates[i].low;
+            count++;
+         }
+      }
+   }
+   
+   if(count > 0 && hi > 0.0 && lo < 999999.0)
+   {
+      asianHigh = hi;
+      asianLow  = lo;
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -1049,6 +1092,62 @@ bool AttemptTradePlacement(const string strategySource, const string direction)
       rec.ai_reason_text = "Blocked by Regime Chop/ATR/Spread Execution Gate";
       LogTradeAttempt(rec);
       return false;
+   }
+
+   //=== GATE 10a: Institutional High-Liquidity Session Windows ===
+   if(InpUseInstitutionalSessions)
+   {
+      MqlDateTime dt;
+      TimeToStruct(TimeCurrent(), dt);
+      int timeMins = dt.hour * 60 + dt.min;
+      
+      // London Expansion Window: 07:00 to 11:30 UTC (420 to 690 mins)
+      // New York Open & Overlap Window: 12:30 to 17:30 UTC (750 to 1050 mins)
+      bool isLondonWindow = (timeMins >= 420 && timeMins <= 690);
+      bool isNewYorkWindow = (timeMins >= 750 && timeMins <= 1050);
+      
+      // High AI Conviction (>= 75%) can trade during London/NY afternoon extension up to 19:00 (1140 mins)
+      bool isLateExtension = (timeMins > 1050 && timeMins <= 1140 && activeConviction >= 0.75);
+      
+      if(!isLondonWindow && !isNewYorkWindow && !isLateExtension)
+      {
+         rec.result       = "BLOCKED";
+         rec.block_reason = "SESSION_LOW_LIQUIDITY";
+         rec.ai_reason_text = StringFormat("Time %02d:%02d outside Institutional High-Liquidity Windows (London 07:00-11:30, NY 12:30-17:30) - Asian/Late chop blocked", dt.hour, dt.min);
+         LogTradeAttempt(rec);
+         return false;
+      }
+   }
+
+   //=== GATE 10b: Asian Range High/Low Liquidity Sweep Guard ===
+   if(InpUseAsianRangeSweep)
+   {
+      double asianHigh = 0.0, asianLow = 0.0;
+      GetAsianSessionRange(asianHigh, asianLow);
+      
+      if(asianHigh > 0.0 && asianLow > 0.0)
+      {
+         double curPrice = (direction == "BUY" ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID));
+         
+         // If price is extended > $6 above Asian High, do not chase BUY (wait for pullback or short sweep)
+         if(direction == "BUY" && (curPrice - asianHigh) > 6.0 && activeConviction < 0.75)
+         {
+            rec.result       = "BLOCKED";
+            rec.block_reason = "ASIAN_HIGH_OVEREXTENSION";
+            rec.ai_reason_text = StringFormat("Price %.2f is +$%.2f above Asian High (%.2f) - High risk of reversal sweep", curPrice, (curPrice - asianHigh), asianHigh);
+            LogTradeAttempt(rec);
+            return false;
+         }
+         // If price is extended > $6 below Asian Low, do not chase SELL
+         if(direction == "SELL" && (asianLow - curPrice) > 6.0 && activeConviction < 0.75)
+         {
+            rec.result       = "BLOCKED";
+            rec.block_reason = "ASIAN_LOW_OVEREXTENSION";
+            rec.ai_reason_text = StringFormat("Price %.2f is -$%.2f below Asian Low (%.2f) - High risk of bounce sweep", curPrice, (asianLow - curPrice), asianLow);
+            LogTradeAttempt(rec);
+            return false;
+         }
+      }
    }
 
 //=== Placement: lot size, SL/TP via CTradeSafe (the SL6/TP8 wrapper) ===

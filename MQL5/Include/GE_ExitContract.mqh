@@ -47,16 +47,16 @@
 //+------------------------------------------------------------------+
 input group "=== Exit Contract (SL/TP/Time-Decay) ==="
 input bool   InpUseATRStopLoss        = true;  // Use ATR-based SL/TP instead of fixed-USD distances
-input double InpATRMultiplier         = 2.5;   // SL = InpATRMultiplier x ATR(14) [2.5x ATR = Full Volatility Breathing Room]
-input double InpLiquidityBufferUSD    = 3.50;  // Hunt-Proof Liquidity Buffer below/above swing wicks (USD)
-input double InpFomoRRRatio           = 2.5;   // TP = SL x InpFomoRRRatio [2.5R Positive Asymmetry for Big Runners]
-input double InpFixedRiskUSD          = 75.0;  // Reference USD risk per trade
+input double InpATRMultiplier         = 1.2;   // SL = InpATRMultiplier x ATR(14) [1.2x ATR = Tight Institutional Structural Risk]
+input double InpLiquidityBufferUSD    = 2.50;  // Hunt-Proof Liquidity Buffer below/above swing wicks (USD)
+input double InpFomoRRRatio           = 3.0;   // TP = SL x InpFomoRRRatio [3.0R Positive Asymmetry: 1:3 Institutional RR]
+input double InpFixedRiskUSD          = 50.0;  // Reference USD risk per trade
 input bool   InpUseProgressiveProfitLock = true;  // Progressive % Profit Lock (35% @ $20, 50% @ $35, 65% @ $50, 75% @ $75)
 input bool   InpUseAutoBreakEven      = true;  // Automatically move Stop Loss to Break-Even when in profit
-input double InpBEActivationATR       = 0.6;   // Break-Even trigger distance in ATRs (e.g. 0.6x ATR in profit -> lock BE)
-input double InpBEBufferUSD           = 0.35;  // Profit buffer above/below entry for Break-Even (covers spread + commission)
+input double InpBEActivationATR       = 1.0;   // Break-Even trigger distance in ATRs (e.g. +1.0x ATR in profit -> lock BE)
+input double InpBEBufferUSD           = 0.50;  // Profit buffer above/below entry for Break-Even (covers spread + commission)
 input bool   InpUseATRTrailing        = true;  // Use dynamic ATR-based trailing stop-loss (dynamic volatility breathing room)
-input double InpTrailActivationATR    = 0.8;   // Trailing stop activation in ATRs (e.g. 0.8x ATR in profit -> start trailing)
+input double InpTrailActivationATR    = 1.5;   // Trailing stop activation in ATRs (e.g. 1.5x ATR in profit -> start trailing)
 input double InpTrailATRMultiplier    = 0.8;   // Trailing stop distance in ATRs (0.8x ATR = Semi-Aggressive Sweet Spot)
 input double InpMinRatchetStepUSD     = 0.15;  // Minimum SL ratchet increment in USD to prevent order flood
 input double InpTrailLockUSD          = 25.0;  // Fallback fixed USD trailing lock (when ATR unavailable)
