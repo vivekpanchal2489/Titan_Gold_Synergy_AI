@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
-//| GoldEngine_Sentinel.mq5                                          |
-//| Fresh rebuild — Step 5 Addition: labeled/adjustable inputs       |
+//| Titan_Gold_Synergy_AI.mq5                                        |
+//| Dual-Engine Solo Specialist & Synergy AI Production EA            |
 //| Orchestration only. All logic and inputs live in GE_* modules.   |
 //+------------------------------------------------------------------+
-#property copyright "GoldEngine Sentinel — Fresh Rebuild"
-#property version   "1.00"
+#property copyright "Titan Gold Synergy AI — Dual-Engine Production Edition"
+#property version   "6.00"
 #property strict
 
 //+------------------------------------------------------------------+

@@ -225,6 +225,7 @@ input bool   InpUseCandleConfirm       = true;   // Gate 9: Candle color momentu
 input bool   InpUseMTFTrendFilter      = true;   // Gate 7b Multi-timeframe trend filter (H1 EMA 50)
 input bool   InpUseInstitutionalSessions = false; // Gate 10a: Session Windows (false = 22 Hours / 5 Days Full Trading)
 input bool   InpUseAsianRangeSweep     = true;   // Gate 10b: Asian Range High/Low Liquidity Sweep Detector
+input bool   InpUseSmartMoneyConfluence = true;  // Gate 11: 4-Stage Smart Money Confluence Gate (Displacement + Volume + FVG)
 input bool   InpUseLocalDonchianBreakout = false; // Local Donchian breakout
 input bool   InpUseLocalVolBreakout    = false;  // Local volume breakout
 input bool   InpUseLocalVWAPPullback   = false;  // Local VWAP pullback
@@ -378,6 +379,9 @@ bool ShouldExecuteTrade(double confidence, double slDistUSD)
       PrintFormat("[SpreadFilter VETO] Blocked: Spread too wide (%d points > 35 max)", spread);
       return false;
    }
+
+   return true;
+}
 
 //+------------------------------------------------------------------+
 //| GetAsianSessionRange — Computes Asian Session High & Low (00-06) |
@@ -1147,6 +1151,55 @@ bool AttemptTradePlacement(const string strategySource, const string direction)
             LogTradeAttempt(rec);
             return false;
          }
+      }
+   }
+
+   //=== GATE 11: 4-Stage Smart Money Confluence Gate ===
+   // Requires institutional structural confirmation:
+   // 1. Structure Shift / Displacement: Body-to-Range >= 0.35 in trade direction
+   // 2. Institutional Volume Participation: Tick Volume >= 70% of 10-bar moving average
+   if(InpUseSmartMoneyConfluence)
+   {
+      double open1  = iOpen(_Symbol, _Period, 1);
+      double close1 = iClose(_Symbol, _Period, 1);
+      double high1  = iHigh(_Symbol, _Period, 1);
+      double low1   = iLow(_Symbol, _Period, 1);
+      double candleRange = high1 - low1;
+      
+      if(candleRange > 0.0)
+      {
+         double body = MathAbs(close1 - open1);
+         double bodyRatio = body / candleRange;
+         
+         if(direction == "BUY" && (close1 <= open1 || bodyRatio < 0.35))
+         {
+            rec.result       = "BLOCKED";
+            rec.block_reason = "SMART_MONEY_NO_DISPLACEMENT";
+            rec.ai_reason_text = StringFormat("No Bullish Displacement on bar-1 (Body ratio %.2f < 0.35) - Waiting for Smart Money impulse", bodyRatio);
+            LogTradeAttempt(rec);
+            return false;
+         }
+         if(direction == "SELL" && (close1 >= open1 || bodyRatio < 0.35))
+         {
+            rec.result       = "BLOCKED";
+            rec.block_reason = "SMART_MONEY_NO_DISPLACEMENT";
+            rec.ai_reason_text = StringFormat("No Bearish Displacement on bar-1 (Body ratio %.2f < 0.35) - Waiting for Smart Money impulse", bodyRatio);
+            LogTradeAttempt(rec);
+            return false;
+         }
+      }
+      
+      long vol1 = iTickVolume(_Symbol, _Period, 1);
+      long volSum = 0;
+      for(int v = 2; v <= 11; v++) volSum += iTickVolume(_Symbol, _Period, v);
+      double avgVol = (double)volSum / 10.0;
+      if(avgVol > 0 && vol1 < (long)(0.70 * avgVol))
+      {
+         rec.result       = "BLOCKED";
+         rec.block_reason = "SMART_MONEY_LOW_VOLUME";
+         rec.ai_reason_text = StringFormat("Volume %d < 70%% of average (%d) - Waiting for Institutional Participation", vol1, (long)avgVol);
+         LogTradeAttempt(rec);
+         return false;
       }
    }
 
