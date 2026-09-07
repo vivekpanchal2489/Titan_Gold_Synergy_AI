@@ -654,6 +654,52 @@ bool AttemptTradePlacement(const string strategySource, const string direction)
       }
    }
 
+   //=== GATE 3b: Two-Strike Directional Loss Circuit Breaker ===
+   // If 2 consecutive losses occurred in the same direction, pause that direction for 30 minutes
+   HistorySelect(TimeCurrent() - 3600, TimeCurrent());
+   int dealTotal = HistoryDealsTotal();
+   int consecDirLosses = 0;
+   datetime lastDealTime = 0;
+   for(int d = dealTotal - 1; d >= 0; d--)
+   {
+      ulong deal = HistoryDealGetTicket(d);
+      if(deal == 0) continue;
+      if(HistoryDealGetString(deal, DEAL_SYMBOL) != _Symbol) continue;
+      if(InpManageOnlyMagicNumber && InpMagicNumber > 0 && HistoryDealGetInteger(deal, DEAL_MAGIC) != InpMagicNumber) continue;
+      if(HistoryDealGetInteger(deal, DEAL_ENTRY) != DEAL_ENTRY_OUT) continue;
+      
+      double pnl = HistoryDealGetDouble(deal, DEAL_PROFIT);
+      long dType = HistoryDealGetInteger(deal, DEAL_TYPE);
+      string closedDir = (dType == DEAL_TYPE_BUY ? "SELL" : "BUY"); // Closing a BUY deal is DEAL_TYPE_SELL, closing a SELL deal is DEAL_TYPE_BUY
+      
+      if(closedDir == direction)
+      {
+         if(pnl < 0.0)
+         {
+            if(consecDirLosses == 0) lastDealTime = (datetime)HistoryDealGetInteger(deal, DEAL_TIME);
+            consecDirLosses++;
+         }
+         else if(pnl > 0.35)
+         {
+            break;
+         }
+      }
+      else
+      {
+         break;
+      }
+   }
+
+   if(consecDirLosses >= 2 && lastDealTime > 0 && (TimeCurrent() - lastDealTime) < 1800) // 30 min cooldown
+   {
+      rec.result       = "BLOCKED";
+      rec.block_reason = "TWO_STRIKE_PAUSE";
+      int minsLeft = (int)((1800 - (TimeCurrent() - lastDealTime)) / 60);
+      rec.ai_reason_text = StringFormat("2 consecutive %s losses - %d min cooling pause active to prevent fighting trend", direction, minsLeft);
+      LogTradeAttempt(rec);
+      return false;
+   }
+
    //=== GATE 4: Opposite-direction cooldown (Step 4) ===
    // Blocks re-entry in the same direction right after an opposite close.
    // Scans the trade history: if the most recent opposite-direction close
@@ -774,47 +820,34 @@ bool AttemptTradePlacement(const string strategySource, const string direction)
       }
    }
 
-   //=== GATE 7b: Multi-Timeframe Trend Filter (with High-Conviction AI Override) ===
+   //=== GATE 7b: Absolute Macro Trend Hierarchy (H1 EMA 50) ===
    if(InpUseMTFTrendFilter)
    {
-      // High-Conviction AI Override (>= 58% conviction with >= 0.10 margin gap):
-      // Allows the 42-feature neural engine to trade explosive reversals / breakdowns without being deadlocked by a lagging 50-hour EMA!
-      double currentAIProb = (direction == "BUY" ? g_cachedOnnxBull : g_cachedOnnxBear);
-      bool isHighConvictionAlpha = (g_cachedOnnxValid && currentAIProb >= 0.58 && g_cachedOnnxMargin >= 0.10);
-
-      if(isHighConvictionAlpha)
+      static int mtfEmaH = INVALID_HANDLE;
+      if(mtfEmaH == INVALID_HANDLE) mtfEmaH = iMA(_Symbol, PERIOD_H1, 50, 0, MODE_EMA, PRICE_CLOSE);
+      if(mtfEmaH != INVALID_HANDLE)
       {
-         PrintFormat("[Gate 7b MTF] High-Conviction AI Override (Dir: %s | Prob: %.3f >= 0.58 | Margin: %.3f): Bypassing lagging H1 EMA 50 for High-Alpha entry!",
-                     direction, currentAIProb, g_cachedOnnxMargin);
-      }
-      else
-      {
-         static int mtfEmaH = INVALID_HANDLE;
-         if(mtfEmaH == INVALID_HANDLE) mtfEmaH = iMA(_Symbol, PERIOD_H1, 50, 0, MODE_EMA, PRICE_CLOSE);
-         if(mtfEmaH != INVALID_HANDLE)
+         double mtfEmaBuf[1];
+         if(CopyBuffer(mtfEmaH, 0, 0, 1, mtfEmaBuf) > 0)
          {
-            double mtfEmaBuf[1];
-            if(CopyBuffer(mtfEmaH, 0, 0, 1, mtfEmaBuf) > 0)
+            double mtfEmaVal = mtfEmaBuf[0];
+            double price = (direction == "BUY" ? SymbolInfoDouble(_Symbol, SYMBOL_ASK)
+                                              : SymbolInfoDouble(_Symbol, SYMBOL_BID));
+            if(direction == "BUY" && price < mtfEmaVal)
             {
-               double mtfEmaVal = mtfEmaBuf[0];
-               double price = (direction == "BUY" ? SymbolInfoDouble(_Symbol, SYMBOL_ASK)
-                                                 : SymbolInfoDouble(_Symbol, SYMBOL_BID));
-               if(direction == "BUY" && price < mtfEmaVal)
-               {
-                  rec.result       = "BLOCKED";
-                  rec.block_reason = "MTF_TREND_FILTER";
-                  rec.ai_reason_text = StringFormat("Price %.2f below H1 EMA 50 (%.2f) - Waiting for Bullish H1 cross or High Conviction (>=58%%)", price, mtfEmaVal);
-                  LogTradeAttempt(rec);
-                  return false;
-               }
-               if(direction == "SELL" && price > mtfEmaVal)
-               {
-                  rec.result       = "BLOCKED";
-                  rec.block_reason = "MTF_TREND_FILTER";
-                  rec.ai_reason_text = StringFormat("Price %.2f above H1 EMA 50 (%.2f) - Waiting for Bearish H1 cross or High Conviction (>=58%%)", price, mtfEmaVal);
-                  LogTradeAttempt(rec);
-                  return false;
-               }
+               rec.result       = "BLOCKED";
+               rec.block_reason = "MACRO_BEAR_TREND";
+               rec.ai_reason_text = StringFormat("Price %.2f is below H1 EMA 50 (%.2f) - Macro Trend is BEARISH, BUYs strictly prohibited", price, mtfEmaVal);
+               LogTradeAttempt(rec);
+               return false;
+            }
+            if(direction == "SELL" && price > mtfEmaVal)
+            {
+               rec.result       = "BLOCKED";
+               rec.block_reason = "MACRO_BULL_TREND";
+               rec.ai_reason_text = StringFormat("Price %.2f is above H1 EMA 50 (%.2f) - Macro Trend is BULLISH, SELLs strictly prohibited", price, mtfEmaVal);
+               LogTradeAttempt(rec);
+               return false;
             }
          }
       }
@@ -908,27 +941,62 @@ bool AttemptTradePlacement(const string strategySource, const string direction)
          }
       }
 
-      // 1. Anti-Chasing Overextension Guard:
-      // Block chasing if price is stretched > 4.0x ATR away from M5 EMA 20 (unless high conviction AI breakout)
-      if(emaVal > 0.0 && atrNow > 0.0 && !isHighConviction)
-      {
-         double maxExtension = MathMax(4.0 * atrNow, 15.0); // Scaled for Gold price
+      // 1. Anti-Chasing Value Location Guard:
+      // Never buy when price is stretched > 2.5x ATR above M5 EMA 20 or after 3 consecutive green bars.
+      // Never sell when price is stretched > 2.5x ATR below M5 EMA 20 or after 3 consecutive red bars.
+      double maxExtension = MathMax(2.5 * atrNow, 6.0);
 
-         if(direction == "BUY" && (close1 - emaVal) > maxExtension)
+      int greenStreak = 0;
+      for(int s = 1; s <= 5; s++)
+      {
+         if(iClose(_Symbol, _Period, s) > iOpen(_Symbol, _Period, s)) greenStreak++;
+         else break;
+      }
+
+      int redStreak = 0;
+      for(int s = 1; s <= 5; s++)
+      {
+         if(iClose(_Symbol, _Period, s) < iOpen(_Symbol, _Period, s)) redStreak++;
+         else break;
+      }
+
+      if(direction == "BUY")
+      {
+         if(emaVal > 0.0 && (close1 - emaVal) > maxExtension)
          {
             rec.result       = "BLOCKED";
             rec.block_reason = "OVEREXTENSION_CHASE";
-            rec.ai_reason_text = StringFormat("Price %.2f stretched +$%.2f above EMA 20 (%.2f) > Limit %.2f - Waiting for pullback to avoid chasing top", 
+            rec.ai_reason_text = StringFormat("Price %.2f stretched +$%.2f above EMA 20 (%.2f) > Limit %.2f - Waiting for pullback to Fair Value", 
                                               close1, (close1 - emaVal), emaVal, maxExtension);
             LogTradeAttempt(rec);
             return false;
          }
-         if(direction == "SELL" && (emaVal - close1) > maxExtension)
+         if(greenStreak >= 3 && close1 > open1)
+         {
+            rec.result       = "BLOCKED";
+            rec.block_reason = "PARABOLIC_CHASE";
+            rec.ai_reason_text = StringFormat("Parabolic Surge (%d green bars in a row) - Waiting for 1-bar pullback before buying", greenStreak);
+            LogTradeAttempt(rec);
+            return false;
+         }
+      }
+
+      if(direction == "SELL")
+      {
+         if(emaVal > 0.0 && (emaVal - close1) > maxExtension)
          {
             rec.result       = "BLOCKED";
             rec.block_reason = "OVEREXTENSION_CHASE";
-            rec.ai_reason_text = StringFormat("Price %.2f stretched -$%.2f below EMA 20 (%.2f) > Limit %.2f - Waiting for pullback to avoid chasing bottom", 
+            rec.ai_reason_text = StringFormat("Price %.2f stretched -$%.2f below EMA 20 (%.2f) > Limit %.2f - Waiting for rally pullback to Fair Value", 
                                               close1, (emaVal - close1), emaVal, maxExtension);
+            LogTradeAttempt(rec);
+            return false;
+         }
+         if(redStreak >= 3 && close1 < open1)
+         {
+            rec.result       = "BLOCKED";
+            rec.block_reason = "WATERFALL_CHASE";
+            rec.ai_reason_text = StringFormat("Waterfall Dump (%d red bars in a row) - Waiting for 1-bar pullback before selling", redStreak);
             LogTradeAttempt(rec);
             return false;
          }
@@ -936,18 +1004,12 @@ bool AttemptTradePlacement(const string strategySource, const string direction)
 
       // 2. Anti-Falling-Knife & Waterfall Liquidation Veto (PHYSICS RULE — NO BYPASS):
       // Even on 99% AI conviction, NEVER BUY into an active red waterfall candle!
-      // The market MUST print at least ONE Green stabilization bar (or 45% hammer bounce) before BUYing.
-      int redStreak = 0;
-      for(int s = 1; s <= 5; s++)
-      {
-         if(iClose(_Symbol, _Period, s) < iOpen(_Symbol, _Period, s)) redStreak++;
-         else break;
-      }
+      // The market MUST print at least ONE Green stabilization bar (or 40% hammer bounce) before BUYing.
       if(direction == "BUY" && (redStreak >= 2 || close1 <= open1))
       {
          double lowerWick = MathMin(open1, close1) - low1;
          double candleRange = high1 - low1;
-         bool isHammerBounce = (candleRange > 0.0 && (lowerWick / candleRange) >= 0.45 && close1 > low1 + 0.45 * candleRange);
+         bool isHammerBounce = (candleRange > 0.0 && (lowerWick / candleRange) >= 0.40 && close1 > low1 + 0.40 * candleRange);
 
          if(!isHammerBounce)
          {
@@ -960,17 +1022,11 @@ bool AttemptTradePlacement(const string strategySource, const string direction)
          }
       }
 
-      int greenStreak = 0;
-      for(int s = 1; s <= 5; s++)
-      {
-         if(iClose(_Symbol, _Period, s) > iOpen(_Symbol, _Period, s)) greenStreak++;
-         else break;
-      }
       if(direction == "SELL" && (greenStreak >= 2 || close1 >= open1))
       {
          double upperWick = high1 - MathMax(open1, close1);
          double candleRange = high1 - low1;
-         bool isShootingStar = (candleRange > 0.0 && (upperWick / candleRange) >= 0.45 && close1 < high1 - 0.45 * candleRange);
+         bool isShootingStar = (candleRange > 0.0 && (upperWick / candleRange) >= 0.40 && close1 < high1 - 0.40 * candleRange);
 
          if(!isShootingStar)
          {

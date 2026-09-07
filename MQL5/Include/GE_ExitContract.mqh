@@ -64,8 +64,8 @@ input double InpTrailDistUSD          = 15.0;  // Fallback fixed USD trailing di
 input double InpExitSLDistUSD         = 20.0;  // Reference SL distance used for lot-sizing math ONLY (structural fallback)
 input double InpExitTPDistUSD         = 60.0;  // Take-profit distance in USD, applied to EVERY position (structural)
 input int    InpMaxHoldMinutes        = 0;     // Max time in position before forced close (minutes; 0 = DISABLED, let trades run)
-input double InpExitReversalP         = 0.75;  // ONNX probability that flips a position to the opposite side (High Conviction only)
-input bool   InpExitReversalAllowLoss = false; // Close LOSING trades on ONNX reversal (false = Do not panic cut on minor pullback dips)
+input double InpExitReversalP         = 0.65;  // ONNX probability that flips a position to the opposite side (Fast Reversal Guard)
+input bool   InpExitReversalAllowLoss = true;  // Close LOSING trades on ONNX reversal (true = Fast Loss Cut at -$10 to -$15 max, avoids -$45 full SL)
 input bool   InpUseStepLadder         = false; // Use USD-based micro step ladder (false = Allow full dynamic ATR trailing)
 input double InpStepSizeUSD           = 15.0;  // Step size and trailing buffer amount in USD
 input bool   InpUseLadderTrail        = true;  // Master Trailing Stop & Profit Lock Switch

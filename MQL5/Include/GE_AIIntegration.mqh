@@ -61,114 +61,118 @@ EnsembleResult EnsembleVote(const float &lgbmProbs[], const float &mlpProbs[], c
    result.execute            = false;
    result.reason             = "NO_CONSENSUS";
 
-   // 1. Detect live market regime
+   // 1. Detect live market regime and macro H1 trend
    ENUM_REGIME regime = DetectMarketRegime();
+
+   static int h1EmaH = INVALID_HANDLE;
+   if(h1EmaH == INVALID_HANDLE) h1EmaH = iMA(_Symbol, PERIOD_H1, 50, 0, MODE_EMA, PRICE_CLOSE);
+   double h1EmaBuf[1];
+   double h1EmaVal = 0.0;
+   if(h1EmaH != INVALID_HANDLE && CopyBuffer(h1EmaH, 0, 0, 1, h1EmaBuf) > 0)
+      h1EmaVal = h1EmaBuf[0];
+   
+   double livePrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   bool isMacroBear = (h1EmaVal > 0.0 && livePrice < h1EmaVal);
+   bool isMacroBull = (h1EmaVal > 0.0 && livePrice > h1EmaVal);
 
    // 2. Identify primary directional lean of each model
    bool lgbmIsBull = (lgbmProbs[0] > lgbmProbs[2] && lgbmProbs[0] > lgbmProbs[1]);
    bool lgbmIsBear = (lgbmProbs[2] > lgbmProbs[0] && lgbmProbs[2] > lgbmProbs[1]);
-   double lgbmTopProb = MathMax(lgbmProbs[0], lgbmProbs[2]);
 
    bool mlpIsBull  = (mlpProbs[0] > mlpProbs[2] && mlpProbs[0] > mlpProbs[1]);
    bool mlpIsBear  = (mlpProbs[2] > mlpProbs[0] && mlpProbs[2] > mlpProbs[1]);
-   double mlpTopProb  = MathMax(mlpProbs[0], mlpProbs[2]);
 
-   // --- MODE 2: DUAL-ENGINE SYNERGY (Both models agree on direction >= 0.52) ---
-   if((lgbmIsBull && mlpIsBull && lgbmProbs[0] >= 0.52 && mlpProbs[0] >= 0.52) ||
-      (lgbmIsBear && mlpIsBear && lgbmProbs[2] >= 0.52 && mlpProbs[2] >= 0.52))
+   // --- MODE 2: DUAL-ENGINE SYNERGY (Both models agree on direction >= 0.50) ---
+   if(lgbmIsBull && mlpIsBull && lgbmProbs[0] >= 0.50 && mlpProbs[0] >= 0.50 && !isMacroBear)
    {
-      int dir = (lgbmIsBull ? 0 : 2);
-      double rawAvg = (lgbmProbs[dir] + mlpProbs[dir]) / 2.0;
-      if(rule.active && rule.direction == dir)
-         rawAvg = (rawAvg * 0.80) + (rule.confidence * 0.20);
-
-      result.finalDirection     = dir;
+      double rawAvg = (lgbmProbs[0] + mlpProbs[0]) / 2.0;
+      if(rule.active && rule.direction == 0) rawAvg = (rawAvg * 0.80) + (rule.confidence * 0.20);
+      result.finalDirection     = 0;
       result.ensembleConfidence = MathMin(0.95, rawAvg * 1.20); // 1.20x Synergy Multiplier
       result.execute            = true;
-      result.reason             = (dir == 0 ? "BULL DUAL-ENGINE SYNERGY (1.20x Boost)" : "BEAR DUAL-ENGINE SYNERGY (1.20x Boost)");
+      result.reason             = "BULL DUAL-ENGINE SYNERGY (1.20x Boost)";
       return result;
    }
-
-   // --- MODE 1A: LIGHTGBM SOLO TREND STRIKE (LGBM >= 0.58, MLP not hard opposing < 0.60) ---
-   if((lgbmIsBull && lgbmProbs[0] >= 0.58 && mlpProbs[2] < 0.60) ||
-      (lgbmIsBear && lgbmProbs[2] >= 0.58 && mlpProbs[0] < 0.60))
+   else if(lgbmIsBear && mlpIsBear && lgbmProbs[2] >= 0.50 && mlpProbs[2] >= 0.50 && !isMacroBull)
    {
-      int dir = (lgbmIsBull ? 0 : 2);
-      result.finalDirection     = dir;
-      result.ensembleConfidence = (double)lgbmProbs[dir];
+      double rawAvg = (lgbmProbs[2] + mlpProbs[2]) / 2.0;
+      if(rule.active && rule.direction == 2) rawAvg = (rawAvg * 0.80) + (rule.confidence * 0.20);
+      result.finalDirection     = 2;
+      result.ensembleConfidence = MathMin(0.95, rawAvg * 1.20); // 1.20x Synergy Multiplier
       result.execute            = true;
-      result.reason             = (dir == 0 ? "LIGHTGBM SOLO BULL TREND STRIKE" : "LIGHTGBM SOLO BEAR TREND STRIKE");
+      result.reason             = "BEAR DUAL-ENGINE SYNERGY (1.20x Boost)";
       return result;
    }
 
-   // --- MODE 1B: DEEP MLP SOLO PATTERN STRIKE (MLP >= 0.68, LGBM not hard opposing < 0.60) ---
-   if((mlpIsBull && mlpProbs[0] >= 0.68 && lgbmProbs[2] < 0.60) ||
-      (mlpIsBear && mlpProbs[2] >= 0.68 && lgbmProbs[0] < 0.60))
-   {
-      int dir = (mlpIsBull ? 0 : 2);
-      result.finalDirection     = dir;
-      result.ensembleConfidence = (double)mlpProbs[dir];
-      result.execute            = true;
-      result.reason             = (dir == 0 ? "DEEP MLP SOLO BULL PATTERN STRIKE" : "DEEP MLP SOLO BEAR PATTERN STRIKE");
-      return result;
-   }
-
-   // --- MODE 3: REGIME-BASED ARBITRATION (When models are split) ---
-   if(regime == REGIME_TREND)
-   {
-      // In Trending market: LightGBM is the master
-      if((lgbmIsBull && lgbmProbs[0] >= 0.55) || (lgbmIsBear && lgbmProbs[2] >= 0.55))
-      {
-         int dir = (lgbmIsBull ? 0 : 2);
-         result.finalDirection     = dir;
-         result.ensembleConfidence = (double)lgbmProbs[dir];
-         result.execute            = true;
-         result.reason             = "TREND REGIME ARBITRATION (LightGBM Lead)";
-         return result;
-      }
-   }
-   else if(regime == REGIME_CHOP)
-   {
-      // In Choppy/Range market: Deep MLP + Rules are the master
-      if((mlpIsBull && mlpProbs[0] >= 0.58) || (mlpIsBear && mlpProbs[2] >= 0.58))
-      {
-         int dir = (mlpIsBull ? 0 : 2);
-         result.finalDirection     = dir;
-         result.ensembleConfidence = (double)mlpProbs[dir];
-         result.execute            = true;
-         result.reason             = "CHOP REGIME ARBITRATION (MLP Reversion Lead)";
-         return result;
-      }
-   }
-
-   // Fallback: Weighted Average
-   double wLgbm = 0.50, wMlp = 0.30, wRule = (rule.active ? 0.20 : 0.0);
-   double totalW = wLgbm + wMlp + wRule;
-   double wBull = (lgbmProbs[0] * wLgbm + mlpProbs[0] * wMlp + (rule.active && rule.direction == 0 ? rule.confidence * wRule : 0.0)) / totalW;
-   double wBear = (lgbmProbs[2] * wLgbm + mlpProbs[2] * wMlp + (rule.active && rule.direction == 2 ? rule.confidence * wRule : 0.0)) / totalW;
-
-   if(wBull >= 0.52 && wBull > wBear)
+   // --- MODE 1A: LIGHTGBM SOLO TREND STRIKE ---
+   if(lgbmIsBull && lgbmProbs[0] >= 0.55 && mlpProbs[2] < 0.60 && !isMacroBear)
    {
       result.finalDirection     = 0;
-      result.ensembleConfidence = wBull;
+      result.ensembleConfidence = (double)lgbmProbs[0];
       result.execute            = true;
-      result.reason             = "WEIGHTED CONSENSUS BULL";
+      result.reason             = "LIGHTGBM SOLO BULL TREND STRIKE";
+      return result;
    }
-   else if(wBear >= 0.52 && wBear > wBull)
+   else if(lgbmIsBear && lgbmProbs[2] >= 0.55 && mlpProbs[0] < 0.60 && !isMacroBull)
    {
       result.finalDirection     = 2;
-      result.ensembleConfidence = wBear;
+      result.ensembleConfidence = (double)lgbmProbs[2];
       result.execute            = true;
-      result.reason             = "WEIGHTED CONSENSUS BEAR";
-   }
-   else
-   {
-      result.finalDirection     = 1;
-      result.ensembleConfidence = MathMax(wBull, wBear);
-      result.execute            = false;
-      result.reason             = "STAND-ASIDE / INSUFFICIENT EDGE";
+      result.reason             = "LIGHTGBM SOLO BEAR TREND STRIKE";
+      return result;
    }
 
+   // --- MODE 1B: DEEP MLP SOLO PATTERN STRIKE ---
+   if(mlpIsBull && mlpProbs[0] >= 0.65 && lgbmProbs[2] < 0.60 && !isMacroBear)
+   {
+      result.finalDirection     = 0;
+      result.ensembleConfidence = (double)mlpProbs[0];
+      result.execute            = true;
+      result.reason             = "DEEP MLP SOLO BULL PATTERN STRIKE";
+      return result;
+   }
+   else if(mlpIsBear && mlpProbs[2] >= 0.65 && lgbmProbs[0] < 0.60 && !isMacroBull)
+   {
+      result.finalDirection     = 2;
+      result.ensembleConfidence = (double)mlpProbs[2];
+      result.execute            = true;
+      result.reason             = "DEEP MLP SOLO BEAR PATTERN STRIKE";
+      return result;
+   }
+
+   // --- MODE 3: MACRO TREND DIRECTED ARBITRATION ---
+   if(isMacroBear)
+   {
+      // Macro is Bearish: evaluate all Bearish signals with high priority
+      double bearScore = MathMax(lgbmProbs[2], mlpProbs[2]);
+      if(bearScore >= 0.48 || (rule.active && rule.direction == 2))
+      {
+         result.finalDirection     = 2;
+         result.ensembleConfidence = MathMax(bearScore, 0.60);
+         result.execute            = true;
+         result.reason             = "MACRO BEAR TREND CONTINUATION (H1 EMA 50 Lead)";
+         return result;
+      }
+   }
+   else if(isMacroBull)
+   {
+      // Macro is Bullish: evaluate all Bullish signals with high priority
+      double bullScore = MathMax(lgbmProbs[0], mlpProbs[0]);
+      if(bullScore >= 0.48 || (rule.active && rule.direction == 0))
+      {
+         result.finalDirection     = 0;
+         result.ensembleConfidence = MathMax(bullScore, 0.60);
+         result.execute            = true;
+         result.reason             = "MACRO BULL TREND CONTINUATION (H1 EMA 50 Lead)";
+         return result;
+      }
+   }
+
+   // Fallback: Neutral
+   result.finalDirection     = 1;
+   result.ensembleConfidence = 0.50;
+   result.execute            = false;
+   result.reason             = (isMacroBear ? "HOLD: MACRO BEAR (Waiting for Bear Strike / Pullback)" : (isMacroBull ? "HOLD: MACRO BULL (Waiting for Bull Strike / Dip)" : "STAND-ASIDE / INSUFFICIENT EDGE"));
    return result;
 }
 
