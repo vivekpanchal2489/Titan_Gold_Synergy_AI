@@ -223,7 +223,7 @@ input int    InpEMAPeriod              = 50;     // Period of the EMA trend filt
 input bool   InpUseRSIFilter           = true;   // Gate 8: RSI exhaustion filter (Blocks Buy @ Top >= 70, Blocks Sell @ Bottom <= 30)
 input bool   InpUseCandleConfirm       = true;   // Gate 9: Candle color momentum confirmation (Wait-and-See)
 input bool   InpUseMTFTrendFilter      = true;   // Gate 7b Multi-timeframe trend filter (H1 EMA 50)
-input bool   InpUseInstitutionalSessions = true; // Gate 10a: Institutional Session Windows (London 07-11 UTC, NY 12:30-17:30 UTC)
+input bool   InpUseInstitutionalSessions = false; // Gate 10a: Session Windows (false = 22 Hours / 5 Days Full Trading)
 input bool   InpUseAsianRangeSweep     = true;   // Gate 10b: Asian Range High/Low Liquidity Sweep Detector
 input bool   InpUseLocalDonchianBreakout = false; // Local Donchian breakout
 input bool   InpUseLocalVolBreakout    = false;  // Local volume breakout
