@@ -52,11 +52,11 @@ input bool   InpUseOnnxCorePath    = true;    // Require ONNX Core Path agreemen
 input bool   InpUseGnnReversion    = true;    // Enable GNN Reversion engine (independent of ONNX gate)
 input bool   InpUseAntiAveragingDown=false;   // Prohibit 2nd trade in same direction if 1st is losing (false = allow AI sniper entries)
 input bool   InpUseDirectionalLock = true;    // Block new positions opposite an existing one
-input bool   InpUseOppDirCooldown  = true;    // Block re-entry in the same direction right after an opposite close
+input bool   InpUseOppDirCooldown  = false;   // Block re-entry in the same direction right after an opposite close (false = Instant V-Reversal Capture)
 input bool   InpUsePriceZoneFilter = true;    // Only trade inside the permitted price zone
-input bool   InpUseGnnBoundaryBlock= true;    // Block entries too close to the GNN ceiling/floor
-input double InpBoundaryThreshold      = 1.50;  // Distance in USD from a GNN line considered safe to trade (Smart Calibration)
-input int    InpOppDirCooldownSecs     = 300;   // Seconds to block same-direction re-entry after an opposite close
+input bool   InpUseGnnBoundaryBlock= false;   // Block entries too close to the GNN ceiling/floor (false = Allow Full Breakout Trend Strikes)
+input double InpBoundaryThreshold      = 0.50;  // Distance in USD from a GNN line considered safe to trade (Smart Calibration)
+input int    InpOppDirCooldownSecs     = 60;    // Seconds to block same-direction re-entry after an opposite close
 
 //+------------------------------------------------------------------+
 //| ADX / ATR / Regime Thresholds                                    |
