@@ -91,7 +91,8 @@ void CreateLabel(string name, int x, int y, string text, int fontSize, color clr
    ObjectSetString(0, name, OBJPROP_TEXT, text);
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, name, OBJPROP_BACK, false);
-   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+   ObjectSetInteger(0, name, OBJPROP_ZORDER, 10);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN, false);
 }
 
 void CreatePanelBg(string name, int x, int y, int width, int height, color bgColor, color borderColor)
@@ -107,8 +108,9 @@ void CreatePanelBg(string name, int x, int y, int width, int height, color bgCol
    ObjectSetInteger(0, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
    ObjectSetInteger(0, name, OBJPROP_COLOR, borderColor);
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, true);
-   ObjectSetInteger(0, name, OBJPROP_BACK, false);
-   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+   ObjectSetInteger(0, name, OBJPROP_BACK, true);
+   ObjectSetInteger(0, name, OBJPROP_ZORDER, 0);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN, false);
 }
 
 void CreateButton(string name, int x, int y, int width, int height, string text, int fontSize, color clr, color bgColor, string font="Segoe UI Semibold")
@@ -244,6 +246,7 @@ void CreateInterface()
 void DashboardInit()
 {
    CreateInterface();
+   DashboardRefresh();
 }
 
 //+------------------------------------------------------------------+
